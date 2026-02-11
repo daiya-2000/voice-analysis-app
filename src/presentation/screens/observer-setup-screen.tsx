@@ -1,5 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -12,6 +12,10 @@ import { palette } from '@/src/presentation/theme/palette';
 
 export function ObserverSetupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ sessionCode?: string; joinPassword?: string }>();
+
+  const sessionCode = typeof params.sessionCode === 'string' ? params.sessionCode : undefined;
+  const joinPassword = typeof params.joinPassword === 'string' ? params.joinPassword : undefined;
 
   const {
     avatarPresets,
@@ -21,13 +25,20 @@ export function ObserverSetupScreen() {
     displayName,
     enrollmentResult,
     errorMessage,
+    isRegisteringProfile,
     recordingState,
+    registerProfile,
     selectedAvatarId,
     setAvatarPreset,
     setDisplayName,
     supabaseDiagnostics,
     toggleRecording,
-  } = useProfileSetup({ observerRole: 'observer', initialDisplayName: 'Guest User' });
+  } = useProfileSetup({
+    observerRole: 'observer',
+    initialDisplayName: 'Guest User',
+    sessionCode,
+    joinPassword,
+  });
 
   const statusMessage = useMemo(() => {
     if (errorMessage) {
@@ -40,6 +51,15 @@ export function ObserverSetupScreen() {
 
     return `登録結果: ${enrollmentResult.tendencySummary} (confidence ${enrollmentResult.confidence.toFixed(2)})`;
   }, [enrollmentResult, errorMessage]);
+
+  const handleJoin = async () => {
+    try {
+      await registerProfile();
+      router.replace('/insights');
+    } catch {
+      // エラーメッセージはuseProfileSetup側で管理する
+    }
+  };
 
   return (
     <AppScreen scroll contentContainerStyle={styles.container}>
@@ -67,6 +87,14 @@ export function ObserverSetupScreen() {
         />
       </View>
 
+      {sessionCode ? (
+        <View style={styles.sessionInfoCard}>
+          <Text style={styles.sessionInfoTitle}>参加セッション</Text>
+          <Text style={styles.sessionInfoValue}>コード: {sessionCode}</Text>
+          <Text style={styles.sessionInfoValue}>パスワード: {joinPassword ?? '未指定'}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.voiceHeader}>
         <Text style={styles.fieldLabel}>音声登録</Text>
         <Text style={styles.recommendBadge}>推奨</Text>
@@ -93,7 +121,13 @@ export function ObserverSetupScreen() {
         </View>
       </View>
 
-      <PrimaryButton label="プロフィールを登録して参加" onPress={() => router.replace('/insights')} />
+      <PrimaryButton
+        label={isRegisteringProfile ? '参加処理中...' : 'プロフィールを登録して参加'}
+        onPress={() => {
+          void handleJoin();
+        }}
+        disabled={isRegisteringProfile}
+      />
       <Text style={styles.footerText}>
         「参加する」をタップすると、利用規約およびプライバシーポリシーへの同意として扱われます。
       </Text>
@@ -190,5 +224,22 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     textAlign: 'center',
     paddingHorizontal: 10,
+  },
+  sessionInfoCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(43, 238, 108, 0.22)',
+    backgroundColor: 'rgba(43, 238, 108, 0.08)',
+    padding: 12,
+    gap: 2,
+  },
+  sessionInfoTitle: {
+    color: palette.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sessionInfoValue: {
+    color: palette.textSecondary,
+    fontSize: 11,
   },
 });

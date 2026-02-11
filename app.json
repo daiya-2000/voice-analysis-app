@@ -11,12 +11,14 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "話者識別のための音声サンプルを録音するためにマイクを使用します。"
+        "NSMicrophoneUsageDescription": "話者識別のための音声サンプルを録音するためにマイクを使用します。",
+        "NSCameraUsageDescription": "QRコードを読み取り、セッションに参加するためにカメラを使用します。"
       }
     },
     "android": {
       "permissions": [
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "CAMERA"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -43,6 +45,12 @@
           "dark": {
             "backgroundColor": "#000000"
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "QRコードを読み取り、セッションに参加するためにカメラを使用します。"
         }
       ]
     ],

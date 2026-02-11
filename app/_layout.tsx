@@ -14,6 +14,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="host-setup" />
         <Stack.Screen name="home" />
+        <Stack.Screen name="qr-scan" />
+        <Stack.Screen name="observer-session-auth" />
         <Stack.Screen name="session-lobby" />
         <Stack.Screen name="observer-setup" />
         <Stack.Screen name="live-session" />

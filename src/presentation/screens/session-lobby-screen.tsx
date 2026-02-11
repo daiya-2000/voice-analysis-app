@@ -1,15 +1,26 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 import { AppScreen } from '@/src/presentation/components/app-screen';
 import { PrimaryButton } from '@/src/presentation/components/primary-button';
-import { useVoiceAnalysisUiData } from '@/src/presentation/hooks/use-voice-analysis-ui-data';
+import { useSessionLobbyData } from '@/src/presentation/hooks/use-session-lobby-data';
 import { palette } from '@/src/presentation/theme/palette';
 
 export function SessionLobbyScreen() {
   const router = useRouter();
-  const { sessionLobby } = useVoiceAnalysisUiData();
+  const {
+    activeObserverCount,
+    backendMode,
+    errorMessage,
+    isLoading,
+    joinPassword,
+    observers,
+    qrPayload,
+    sessionCode,
+    supabaseDiagnostics,
+  } = useSessionLobbyData();
 
   return (
     <AppScreen scroll contentContainerStyle={styles.container}>
@@ -25,25 +36,30 @@ export function SessionLobbyScreen() {
 
       <View style={styles.qrArea}>
         <View style={styles.qrFrame}>
-          <MaterialIcons name="qr-code-2" size={144} color={palette.background} />
+          {qrPayload ? (
+            <QRCode value={qrPayload} size={160} backgroundColor="#FFFFFF" color={palette.background} />
+          ) : (
+            <ActivityIndicator color={palette.background} />
+          )}
         </View>
         <Text style={styles.qrCaption}>QRコードをスキャンして閲覧</Text>
         <View style={styles.codeRow}>
-          <Text style={styles.codeLabel}>{sessionLobby.sessionCode}</Text>
+          <Text style={styles.codeLabel}>{sessionCode || '---- ----'}</Text>
           <MaterialIcons name="content-copy" size={16} color={palette.textSecondary} />
         </View>
+        <Text style={styles.passwordLabel}>参加パスワード: {joinPassword || '------'}</Text>
       </View>
 
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>閲覧中のObserver</Text>
         <View style={styles.activeBadge}>
           <View style={styles.activeDot} />
-          <Text style={styles.activeText}>{sessionLobby.activeObserverCount}名がアクティブ</Text>
+          <Text style={styles.activeText}>{activeObserverCount}名がアクティブ</Text>
         </View>
       </View>
 
       <View style={styles.observerList}>
-        {sessionLobby.observers.map((observer) => (
+        {observers.map((observer) => (
           <View key={observer.id} style={styles.observerCard}>
             <View style={styles.observerAvatar}>
               <Text style={styles.observerAvatarLabel}>{observer.avatarLabel}</Text>
@@ -64,6 +80,21 @@ export function SessionLobbyScreen() {
           </View>
         ))}
       </View>
+
+      {isLoading ? (
+        <View style={styles.loadingRow}>
+          <ActivityIndicator size="small" color={palette.primary} />
+          <Text style={styles.loadingLabel}>セッションを初期化しています...</Text>
+        </View>
+      ) : null}
+
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+      <Text style={styles.backendHint}>
+        {backendMode === 'supabase'
+          ? 'Supabase Realtimeで参加者を同期中'
+          : `モック表示 (${supabaseDiagnostics.missingKeys.join(', ') || 'local'})`}
+      </Text>
 
       <View style={styles.infoBlock}>
         <MaterialIcons name="info" size={18} color={palette.primary} />
@@ -133,6 +164,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 2,
     fontWeight: '700',
+  },
+  passwordLabel: {
+    color: palette.textSecondary,
+    fontSize: 11,
   },
   listHeader: {
     flexDirection: 'row',
@@ -225,5 +260,25 @@ const styles = StyleSheet.create({
     color: palette.textSecondary,
     fontSize: 11,
     lineHeight: 16,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  loadingLabel: {
+    color: palette.textSecondary,
+    fontSize: 12,
+  },
+  errorText: {
+    color: '#FF9D9D',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  backendHint: {
+    color: 'rgba(43, 238, 108, 0.6)',
+    fontSize: 10,
+    textAlign: 'center',
   },
 });

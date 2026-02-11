@@ -5,6 +5,7 @@ export interface ObserverProfileRegistrationRequest {
   avatarPresetId: string;
   observerRole: ObserverRoleType;
   sessionCode?: string;
+  joinPassword?: string;
 }
 
 export interface ObserverProfileRegistrationResult {
