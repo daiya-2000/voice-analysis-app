@@ -12,6 +12,7 @@ import { SupabaseProfileRegistrationAdapter } from '@/src/adapters/supabase/supa
 import { CompleteVoiceEnrollmentUseCase } from '@/src/application/usecases/complete-voice-enrollment.usecase';
 import { GetAvatarPresetsUseCase } from '@/src/application/usecases/get-avatar-presets.usecase';
 import { GetVoicePromptsUseCase } from '@/src/application/usecases/get-voice-prompts.usecase';
+import { RegisterObserverProfileUseCase } from '@/src/application/usecases/register-observer-profile.usecase';
 import { StartVoiceRecordingUseCase } from '@/src/application/usecases/start-voice-recording.usecase';
 import type { AvatarPreset } from '@/src/domain/profile/avatar-preset';
 import type { ObserverRoleType, VoiceEnrollmentResult } from '@/src/domain/voice/voice-enrollment';
@@ -22,6 +23,7 @@ export type BackendMode = 'supabase' | 'mock' | 'missing_env';
 interface UseProfileSetupOptions {
   observerRole: ObserverRoleType;
   sessionCode?: string;
+  joinPassword?: string;
   initialDisplayName?: string;
 }
 
@@ -38,6 +40,7 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [enrollmentResult, setEnrollmentResult] = useState<VoiceEnrollmentResult | null>(null);
   const [registeredObserverId, setRegisteredObserverId] = useState<string | undefined>(undefined);
+  const [isRegisteringProfile, setIsRegisteringProfile] = useState(false);
 
   const diagnostics = getSupabaseCredentialDiagnostics();
   const hasSupabase = hasSupabaseCredentials();
@@ -82,6 +85,10 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
       ),
     [profileRegistrationAdapter, recorderAdapter, voiceEnrollmentAdapter]
   );
+  const registerObserverProfileUseCase = useMemo(
+    () => new RegisterObserverProfileUseCase(profileRegistrationAdapter),
+    [profileRegistrationAdapter]
+  );
 
   const selectedAvatarPreset = useMemo(
     () => avatarPresets.find((avatar) => avatar.id === selectedAvatarId) ?? avatarPresets[0],
@@ -97,6 +104,55 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
   const setAvatarPreset = useCallback((preset: AvatarPreset) => {
     setSelectedAvatarId(preset.id);
   }, []);
+
+  const resolveDisplayName = useCallback(() => {
+    const fallback = options.observerRole === 'host' ? 'Host User' : 'Observer User';
+    return displayName.trim() || fallback;
+  }, [displayName, options.observerRole]);
+
+  const registerProfile = useCallback(async () => {
+    if (registeredObserverId) {
+      return registeredObserverId;
+    }
+
+    if (backendMode === 'missing_env') {
+      const missingEnvMessage = `Supabase環境変数が未設定です: ${diagnostics.missingKeys.join(', ')}`;
+      setErrorMessage(missingEnvMessage);
+      throw new Error(missingEnvMessage);
+    }
+
+    setIsRegisteringProfile(true);
+    setErrorMessage(null);
+
+    try {
+      const outcome = await registerObserverProfileUseCase.execute({
+        displayName: resolveDisplayName(),
+        avatarPresetId: selectedAvatarPreset?.id ?? 'forest',
+        observerRole: options.observerRole,
+        sessionCode: options.sessionCode,
+        joinPassword: options.joinPassword,
+      });
+
+      setRegisteredObserverId(outcome.observerId);
+      return outcome.observerId;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'プロフィール登録に失敗しました。';
+      setErrorMessage(message);
+      throw error;
+    } finally {
+      setIsRegisteringProfile(false);
+    }
+  }, [
+    backendMode,
+    diagnostics.missingKeys,
+    options.joinPassword,
+    options.observerRole,
+    options.sessionCode,
+    registerObserverProfileUseCase,
+    registeredObserverId,
+    resolveDisplayName,
+    selectedAvatarPreset,
+  ]);
 
   const toggleRecording = useCallback(async () => {
     if (!currentPrompt || recordingState === 'submitting') {
@@ -129,11 +185,13 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
 
     try {
       const outcome = await completeVoiceEnrollmentUseCase.execute({
-        displayName: displayName.trim() || (options.observerRole === 'host' ? 'Host User' : 'Observer User'),
+        existingObserverId: registeredObserverId,
+        displayName: resolveDisplayName(),
         avatarPresetId: selectedAvatarPreset?.id ?? 'forest',
         observerRole: options.observerRole,
         script: currentPrompt,
         sessionCode: options.sessionCode,
+        joinPassword: options.joinPassword,
       });
 
       setRegisteredObserverId(outcome.observerId);
@@ -150,10 +208,12 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
     completeVoiceEnrollmentUseCase,
     currentPrompt,
     diagnostics.missingKeys,
-    displayName,
     options.observerRole,
+    options.joinPassword,
     options.sessionCode,
     recordingState,
+    registeredObserverId,
+    resolveDisplayName,
     selectedAvatarPreset,
     startVoiceRecordingUseCase,
   ]);
@@ -166,6 +226,7 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
     enrollmentResult,
     errorMessage,
     hasSupabase,
+    isRegisteringProfile,
     recordingState,
     selectedAvatarId,
     selectedAvatarPreset,
@@ -175,5 +236,6 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
     supabaseDiagnostics: diagnostics,
     toggleRecording,
     chooseNextPrompt,
+    registerProfile,
   };
 }

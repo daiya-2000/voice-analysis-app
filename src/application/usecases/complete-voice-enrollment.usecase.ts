@@ -5,11 +5,13 @@ import type { VoiceEnrollmentResult, ObserverRoleType } from '@/src/domain/voice
 import type { VoicePrompt } from '@/src/domain/voice/voice-prompt';
 
 export interface CompleteVoiceEnrollmentInput {
+  existingObserverId?: string;
   displayName: string;
   avatarPresetId: string;
   observerRole: ObserverRoleType;
   script: VoicePrompt;
   sessionCode?: string;
+  joinPassword?: string;
 }
 
 export interface CompleteVoiceEnrollmentOutput {
@@ -25,17 +27,22 @@ export class CompleteVoiceEnrollmentUseCase {
   ) {}
 
   async execute(input: CompleteVoiceEnrollmentInput): Promise<CompleteVoiceEnrollmentOutput> {
-    const profile = await this.profileRegistrationPort.registerObserverProfile({
-      displayName: input.displayName,
-      avatarPresetId: input.avatarPresetId,
-      observerRole: input.observerRole,
-      sessionCode: input.sessionCode,
-    });
+    const observerId =
+      input.existingObserverId ??
+      (
+        await this.profileRegistrationPort.registerObserverProfile({
+          displayName: input.displayName,
+          avatarPresetId: input.avatarPresetId,
+          observerRole: input.observerRole,
+          sessionCode: input.sessionCode,
+          joinPassword: input.joinPassword,
+        })
+      ).observerId;
 
     const sample = await this.voiceRecorderPort.stopRecording();
 
     const enrollment = await this.voiceEnrollmentPort.enrollVoiceSample({
-      observerId: profile.observerId,
+      observerId,
       displayName: input.displayName,
       avatarPresetId: input.avatarPresetId,
       observerRole: input.observerRole,
@@ -45,7 +52,7 @@ export class CompleteVoiceEnrollmentUseCase {
     });
 
     return {
-      observerId: profile.observerId,
+      observerId,
       enrollment,
     };
   }

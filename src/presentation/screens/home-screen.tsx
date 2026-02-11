@@ -37,7 +37,7 @@ export function HomeScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Pressable style={styles.qrButton} onPress={() => router.push('/observer-setup')}>
+        <Pressable style={styles.qrButton} onPress={() => router.push('/qr-scan')}>
           <MaterialIcons name="qr-code-scanner" size={22} color={palette.primary} />
           <Text style={styles.qrButtonLabel}>QRコードで参加</Text>
         </Pressable>

@@ -5,13 +5,19 @@ import { palette } from '@/src/presentation/theme/palette';
 interface PrimaryButtonProps {
   label: string;
   onPress: (event: GestureResponderEvent) => void;
+  disabled?: boolean;
 }
 
-export function PrimaryButton({ label, onPress }: PrimaryButtonProps) {
+export function PrimaryButton({ label, onPress, disabled = false }: PrimaryButtonProps) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+      style={({ pressed }) => [
+        styles.button,
+        disabled && styles.buttonDisabled,
+        pressed && !disabled && styles.buttonPressed,
+      ]}
+      disabled={disabled}
       accessibilityRole="button">
       <Text style={styles.label}>{label}</Text>
     </Pressable>
@@ -34,6 +40,9 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.99 }],
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   label: {
     color: palette.background,
