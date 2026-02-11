@@ -12,6 +12,11 @@ export interface CompleteVoiceEnrollmentInput {
   sessionCode?: string;
 }
 
+export interface CompleteVoiceEnrollmentOutput {
+  observerId: string;
+  enrollment: VoiceEnrollmentResult;
+}
+
 export class CompleteVoiceEnrollmentUseCase {
   constructor(
     private readonly profileRegistrationPort: ProfileRegistrationPort,
@@ -19,7 +24,7 @@ export class CompleteVoiceEnrollmentUseCase {
     private readonly voiceEnrollmentPort: VoiceEnrollmentPort
   ) {}
 
-  async execute(input: CompleteVoiceEnrollmentInput): Promise<VoiceEnrollmentResult> {
+  async execute(input: CompleteVoiceEnrollmentInput): Promise<CompleteVoiceEnrollmentOutput> {
     const profile = await this.profileRegistrationPort.registerObserverProfile({
       displayName: input.displayName,
       avatarPresetId: input.avatarPresetId,
@@ -29,7 +34,7 @@ export class CompleteVoiceEnrollmentUseCase {
 
     const sample = await this.voiceRecorderPort.stopRecording();
 
-    return this.voiceEnrollmentPort.enrollVoiceSample({
+    const enrollment = await this.voiceEnrollmentPort.enrollVoiceSample({
       observerId: profile.observerId,
       displayName: input.displayName,
       avatarPresetId: input.avatarPresetId,
@@ -38,5 +43,10 @@ export class CompleteVoiceEnrollmentUseCase {
       sample,
       sessionCode: input.sessionCode,
     });
+
+    return {
+      observerId: profile.observerId,
+      enrollment,
+    };
   }
 }

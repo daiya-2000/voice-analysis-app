@@ -1,8 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { LocalHostProfileCacheAdapter } from '@/src/adapters/storage/local-host-profile-cache.adapter';
+import { LoadHostProfileUseCase } from '@/src/application/usecases/load-host-profile.usecase';
+import { SaveHostProfileUseCase } from '@/src/application/usecases/save-host-profile.usecase';
 import { AvatarPresetPicker } from '@/src/presentation/components/avatar-preset-picker';
 import { AppScreen } from '@/src/presentation/components/app-screen';
 import { PrimaryButton } from '@/src/presentation/components/primary-button';
@@ -22,6 +25,7 @@ export function HostSetupScreen() {
     enrollmentResult,
     errorMessage,
     recordingState,
+    registeredObserverId,
     selectedAvatarId,
     setAvatarPreset,
     setDisplayName,
@@ -29,7 +33,79 @@ export function HostSetupScreen() {
     toggleRecording,
   } = useProfileSetup({ observerRole: 'host' });
 
+  const [isHydratingProfile, setIsHydratingProfile] = useState(true);
+  const [persistError, setPersistError] = useState<string | null>(null);
+  const [cachedObserverId, setCachedObserverId] = useState<string | undefined>(undefined);
+
+  const hostProfileCacheAdapter = useMemo(() => new LocalHostProfileCacheAdapter(), []);
+  const loadHostProfileUseCase = useMemo(
+    () => new LoadHostProfileUseCase(hostProfileCacheAdapter),
+    [hostProfileCacheAdapter]
+  );
+  const saveHostProfileUseCase = useMemo(
+    () => new SaveHostProfileUseCase(hostProfileCacheAdapter),
+    [hostProfileCacheAdapter]
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    loadHostProfileUseCase
+      .execute()
+      .then((profile) => {
+        if (!isMounted || !profile) {
+          return;
+        }
+
+        setCachedObserverId(profile.observerId);
+        setDisplayName((current) => current.trim() || profile.displayName);
+
+        const matchingAvatar = avatarPresets.find((avatar) => avatar.id === profile.avatarPresetId);
+        if (matchingAvatar) {
+          setAvatarPreset(matchingAvatar);
+        }
+      })
+      .finally(() => {
+        if (!isMounted) {
+          return;
+        }
+
+        setIsHydratingProfile(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [avatarPresets, loadHostProfileUseCase, setAvatarPreset, setDisplayName]);
+
+  const handleComplete = useCallback(async () => {
+    try {
+      setPersistError(null);
+
+      await saveHostProfileUseCase.execute({
+        displayName: displayName.trim() || 'Host User',
+        avatarPresetId: selectedAvatarId || 'forest',
+        observerId: registeredObserverId ?? cachedObserverId,
+      });
+
+      router.replace('/home');
+    } catch (error) {
+      setPersistError(error instanceof Error ? error.message : 'プロフィール保存に失敗しました。');
+    }
+  }, [
+    cachedObserverId,
+    displayName,
+    registeredObserverId,
+    router,
+    saveHostProfileUseCase,
+    selectedAvatarId,
+  ]);
+
   const statusMessage = useMemo(() => {
+    if (persistError) {
+      return persistError;
+    }
+
     if (errorMessage) {
       return errorMessage;
     }
@@ -39,7 +115,7 @@ export function HostSetupScreen() {
     }
 
     return `登録結果: ${enrollmentResult.tendencySummary} (confidence ${enrollmentResult.confidence.toFixed(2)})`;
-  }, [enrollmentResult, errorMessage]);
+  }, [enrollmentResult, errorMessage, persistError]);
 
   return (
     <AppScreen scroll contentContainerStyle={styles.container}>
@@ -89,7 +165,14 @@ export function HostSetupScreen() {
         </Text>
       </View>
 
-      <PrimaryButton label="設定を完了して開始" onPress={() => router.replace('/home')} />
+      {isHydratingProfile ? (
+        <View style={styles.loadingRow}>
+          <ActivityIndicator size="small" color={palette.primary} />
+          <Text style={styles.loadingText}>保存済みプロフィールを読み込み中...</Text>
+        </View>
+      ) : null}
+
+      <PrimaryButton label="設定を完了して開始" onPress={handleComplete} />
     </AppScreen>
   );
 }
@@ -160,5 +243,15 @@ const styles = StyleSheet.create({
     color: palette.textSecondary,
     fontSize: 11,
     lineHeight: 16,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  loadingText: {
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 12,
   },
 });
