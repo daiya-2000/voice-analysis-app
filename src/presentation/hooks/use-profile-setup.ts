@@ -37,6 +37,7 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [enrollmentResult, setEnrollmentResult] = useState<VoiceEnrollmentResult | null>(null);
+  const [registeredObserverId, setRegisteredObserverId] = useState<string | undefined>(undefined);
 
   const diagnostics = getSupabaseCredentialDiagnostics();
   const hasSupabase = hasSupabaseCredentials();
@@ -127,7 +128,7 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
     setErrorMessage(null);
 
     try {
-      const result = await completeVoiceEnrollmentUseCase.execute({
+      const outcome = await completeVoiceEnrollmentUseCase.execute({
         displayName: displayName.trim() || (options.observerRole === 'host' ? 'Host User' : 'Observer User'),
         avatarPresetId: selectedAvatarPreset?.id ?? 'forest',
         observerRole: options.observerRole,
@@ -135,7 +136,8 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
         sessionCode: options.sessionCode,
       });
 
-      setEnrollmentResult(result);
+      setRegisteredObserverId(outcome.observerId);
+      setEnrollmentResult(outcome.enrollment);
       setRecordingState('success');
       chooseNextPrompt();
     } catch (error) {
@@ -167,6 +169,7 @@ export function useProfileSetup(options: UseProfileSetupOptions) {
     recordingState,
     selectedAvatarId,
     selectedAvatarPreset,
+    registeredObserverId,
     setAvatarPreset,
     setDisplayName,
     supabaseDiagnostics: diagnostics,
