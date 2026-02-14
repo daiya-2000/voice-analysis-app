@@ -103,7 +103,15 @@ export function SessionLobbyScreen() {
         </Text>
       </View>
 
-      <PrimaryButton label="分析セッションを開始" onPress={() => router.push('/live-session')} />
+      <PrimaryButton
+        label="分析セッションを開始"
+        onPress={() =>
+          router.push({
+            pathname: '/live-session',
+            params: { sessionCode },
+          })
+        }
+      />
     </AppScreen>
   );
 }

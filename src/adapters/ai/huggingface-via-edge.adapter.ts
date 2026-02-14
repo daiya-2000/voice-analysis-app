@@ -1,5 +1,5 @@
 import type { VoiceEnrollmentPort } from '@/src/application/ports/voice-enrollment.port';
-import { getSupabaseClient } from '@/src/adapters/supabase/client';
+import { ensureSupabaseAuthSession, getSupabaseClient } from '@/src/adapters/supabase/client';
 import type { VoiceEnrollmentRequest, VoiceEnrollmentResult } from '@/src/domain/voice/voice-enrollment';
 
 interface VoiceEnrollFunctionResponse {
@@ -10,6 +10,8 @@ interface VoiceEnrollFunctionResponse {
 
 export class HuggingFaceViaEdgeAdapter implements VoiceEnrollmentPort {
   async enrollVoiceSample(request: VoiceEnrollmentRequest): Promise<VoiceEnrollmentResult> {
+    await ensureSupabaseAuthSession();
+
     const supabase = getSupabaseClient();
 
     const { data, error } = await supabase.functions.invoke<VoiceEnrollFunctionResponse>('voice-enroll', {
