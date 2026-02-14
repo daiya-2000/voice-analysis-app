@@ -6,6 +6,11 @@ export interface RecordedVoiceSample {
   base64Audio: string;
   mimeType: string;
   durationMs: number;
+  averageMeteringDb?: number;
+  silenceRatio?: number;
+  peakMeteringDb?: number;
+  dynamicRangeDb?: number;
+  noiseFloorDb?: number;
 }
 
 export interface VoiceEnrollmentRequest {

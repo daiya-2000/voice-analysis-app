@@ -9,7 +9,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/domain/**/*.test.ts src/application/**/*.test.ts"
+    "test": "tsx --test src/domain/**/*.test.ts src/application/**/*.test.ts",
+    "check:edge-auth": "node scripts/check-edge-auth.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

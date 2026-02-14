@@ -1,67 +1,152 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppScreen } from '@/src/presentation/components/app-screen';
 import { PrimaryButton } from '@/src/presentation/components/primary-button';
 import { WaveBars } from '@/src/presentation/components/wave-bars';
+import { useLiveSessionController } from '@/src/presentation/hooks/use-live-session-controller';
 import { useVoiceAnalysisUiData } from '@/src/presentation/hooks/use-voice-analysis-ui-data';
 import { palette } from '@/src/presentation/theme/palette';
 
 const LIVE_WAVE_BARS = [16, 28, 48, 72, 96, 68, 88, 58, 72, 34, 20];
 
+function buildLiveWaveBars(currentMeteringDb: number | null, isAnalyzingChunk: boolean): number[] {
+  if (isAnalyzingChunk) {
+    return LIVE_WAVE_BARS.map((height, index) => Math.max(14, height + ((index % 3) - 1) * 10));
+  }
+
+  if (currentMeteringDb === null) {
+    return LIVE_WAVE_BARS.map((height) => Math.max(10, Math.round(height * 0.55)));
+  }
+
+  const normalized = Math.min(1, Math.max(0, (currentMeteringDb + 65) / 35));
+
+  return LIVE_WAVE_BARS.map((height, index) => {
+    const scaled = height * (0.55 + normalized * 0.7);
+    const wobble = index % 2 === 0 ? 4 : -3;
+
+    return Math.max(10, Math.round(scaled + wobble));
+  });
+}
+
+function formatPercent(value: number | null): string {
+  if (value === null) {
+    return '--';
+  }
+
+  return `${Math.round(value * 100)}%`;
+}
+
 export function LiveSessionScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ sessionCode?: string }>();
+  const sessionCode = typeof params.sessionCode === 'string' ? params.sessionCode : undefined;
+
   const { liveSession } = useVoiceAnalysisUiData();
+  const {
+    analysisMode,
+    analysisState,
+    analyzedChunkCount,
+    currentMeteringDb,
+    endSession,
+    errorMessage,
+    isAnalyzingChunk,
+    isMuted,
+    lastChunkDiagnostics,
+    runtimeView,
+    status,
+    toggleMute,
+  } = useLiveSessionController({
+    baseView: liveSession,
+    sessionCode,
+  });
+
+  const handleFinishSession = async () => {
+    await endSession();
+    Alert.alert('保存しました', 'セッションを保存しました。', [
+      {
+        text: 'OK',
+        onPress: () => {
+          router.replace('/home');
+        },
+      },
+    ]);
+  };
+
+  const liveWaveBars = buildLiveWaveBars(currentMeteringDb, isAnalyzingChunk);
 
   return (
-    <AppScreen contentContainerStyle={styles.container}>
+    <AppScreen scroll contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Pressable style={styles.roundIcon} onPress={() => router.back()}>
-          <MaterialIcons name="close" size={20} color={palette.textPrimary} />
-        </Pressable>
-
         <View style={styles.headerCenter}>
           <Text style={styles.headerEyebrow}>Live Analysis</Text>
           <View style={styles.headerStatusRow}>
-            <View style={styles.headerPulse} />
-            <Text style={styles.headerTitle}>録音セッション中</Text>
+            <View
+              style={[
+                styles.headerPulse,
+                status === 'muted' && styles.headerPulseMuted,
+                status === 'error' && styles.headerPulseError,
+              ]}
+            />
+            <Text style={styles.headerTitle}>
+              {status === 'starting'
+                ? '録音開始中'
+                : status === 'muted'
+                  ? 'ミュート中'
+                  : status === 'error'
+                    ? '録音エラー'
+                    : '録音セッション中'}
+            </Text>
           </View>
         </View>
-
-        <Pressable style={styles.roundIcon}>
-          <MaterialIcons name="more-horiz" size={22} color={palette.textPrimary} />
-        </Pressable>
       </View>
 
       <View style={styles.engagementChip}>
         <MaterialIcons name="auto-awesome" size={16} color={palette.primary} />
-        <Text style={styles.engagementText}>{liveSession.engagementEstimate}</Text>
+        <Text style={styles.engagementText}>{analysisState.engagementEstimate}</Text>
       </View>
+      {analysisState.lowConfidence ? (
+        <Text style={styles.lowConfidenceHint}>信頼度が低いため追加解析中です</Text>
+      ) : null}
+      {analysisState.noisyEnvironmentLikely ? (
+        <Text style={styles.noisyHint}>
+          周囲音が強く推定精度が低下しやすい状態です。端末を会話者に近づけてください。
+        </Text>
+      ) : null}
+
+      <Text style={styles.silenceRatioInline}>無音比 {formatPercent(lastChunkDiagnostics.silenceRatio)}</Text>
 
       <View style={styles.liveWaveArea}>
-        <WaveBars heights={LIVE_WAVE_BARS} activeFrom={2} barWidth={6} />
+        <WaveBars heights={liveWaveBars} activeFrom={2} barWidth={6} />
       </View>
 
       <View style={styles.elapsedArea}>
-        <Text style={styles.elapsedTime}>{liveSession.elapsedTimeLabel}</Text>
-        <Text style={styles.elapsedCaption}>会話の流れを分析中...</Text>
+        <Text style={styles.elapsedTime}>{runtimeView.elapsedTimeLabel}</Text>
+        <Text style={styles.elapsedCaption}>
+          {runtimeView.isWarmup ? 'トーンとペースを分析中...' : '会話の流れを分析中...'}
+        </Text>
       </View>
 
       <View style={styles.metricsGrid}>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>トーン</Text>
-          <Text style={styles.metricValue}>{liveSession.toneEstimate}</Text>
+          <Text style={styles.metricValue}>{runtimeView.toneEstimate}</Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>ペース</Text>
-          <Text style={styles.metricValue}>{liveSession.paceEstimate}</Text>
+          <Text style={styles.metricValue}>{runtimeView.paceEstimate}</Text>
         </View>
       </View>
 
       <View style={styles.toolbar}>
-        <ActionIcon label="ミュート" iconName="mic-off" />
-        <ActionIcon label="タグ付け" iconName="bookmark-border" />
+        <ActionIcon
+          label={isMuted ? 'ミュート解除' : 'ミュート'}
+          iconName={isMuted ? 'mic' : 'mic-off'}
+          onPress={() => {
+            void toggleMute();
+          }}
+        />
         <ActionIcon
           label="データ表示"
           iconName="equalizer"
@@ -70,13 +155,30 @@ export function LiveSessionScreen() {
         />
       </View>
 
-      <PrimaryButton label="セッションを終了して保存" onPress={() => router.replace('/home')} />
+      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+      <Text style={styles.backendHint}>
+        {analysisMode === 'supabase'
+          ? `Supabaseライブ解析: ${analyzedChunkCount}回`
+          : analysisMode === 'mock_fallback'
+            ? `認証ゲート再試行中のため一時フォールバック解析を表示中 (${analyzedChunkCount}回)`
+            : `モック解析で表示を更新中 (${analyzedChunkCount}回)`}
+      </Text>
+      <Text style={styles.speakerScopeHint}>
+        現在は会話全体の傾向を推定中（Detected Speakerごとの分離解析は未対応）
+      </Text>
+
+      <PrimaryButton
+        label="セッションを終了して保存"
+        onPress={() => {
+          void handleFinishSession();
+        }}
+      />
     </AppScreen>
   );
 }
 
 interface ActionIconProps {
-  iconName: 'mic-off' | 'bookmark-border' | 'equalizer';
+  iconName: 'mic' | 'mic-off' | 'equalizer';
   label: string;
   onPress?: () => void;
   isPrimary?: boolean;
@@ -104,19 +206,7 @@ const styles = StyleSheet.create({
   },
   header: {
     marginTop: 8,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  roundIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerCenter: {
     alignItems: 'center',
@@ -139,6 +229,12 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: palette.primary,
+  },
+  headerPulseMuted: {
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  headerPulseError: {
+    backgroundColor: '#ff7676',
   },
   headerTitle: {
     color: palette.textPrimary,
@@ -163,8 +259,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13,
   },
+  tendencySummary: {
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  silenceRatioInline: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: -2,
+  },
+  lowConfidenceHint: {
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: -3,
+  },
+  noisyHint: {
+    color: '#ffd88a',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: -2,
+  },
   liveWaveArea: {
-    marginTop: 18,
+    marginTop: 14,
     alignItems: 'center',
     justifyContent: 'center',
     height: 180,
@@ -216,9 +336,10 @@ const styles = StyleSheet.create({
   },
   toolbar: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
+    gap: 28,
     marginTop: 14,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   actionRoot: {
     alignItems: 'center',
@@ -242,9 +363,24 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.5)',
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 1,
   },
   actionLabelPrimary: {
     color: palette.primary,
+  },
+  errorText: {
+    color: '#ff9b9b',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  backendHint: {
+    color: 'rgba(43, 238, 108, 0.72)',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  speakerScopeHint: {
+    color: 'rgba(255, 255, 255, 0.52)',
+    fontSize: 10,
+    textAlign: 'center',
+    marginBottom: 4,
   },
 });

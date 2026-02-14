@@ -37,6 +37,8 @@ class SessionDataPortStub implements SessionDataPort {
           estimatedEmotionTendency: '前向き',
           estimatedResponseTendency: '共感的',
           estimatedAffinityTendency: 'Observer 1 への関心が高め',
+          estimatedAffinityScore: 0.8,
+          estimatedAffinityConfidence: 0.7,
           targetObserverId: 'observer-1',
         },
       ],
@@ -50,7 +52,14 @@ test('GetInsightsViewUseCase resolves observer name and soft estimate labels', (
   const view = useCase.execute();
 
   assert.equal(view.activeViewerCount, 2);
-  assert.equal(view.speakerCards[0]?.targetObserverName, 'Observer 1');
+  assert.equal(view.speakerCards[0]?.targetObserverName, '登録外ユーザー');
+  assert.equal(view.speakerCards[0]?.targetObserverRoleLabel, '登録外ユーザー');
   assert.equal(view.speakerCards[0]?.emotionEstimate, '前向き傾向');
+  assert.equal(view.affinityByObserverRole.find((item) => item.role === 'observer')?.estimatedScore, 0.8);
+  assert.equal(view.affinityByObserverRole.find((item) => item.role === 'observer')?.confidence, 0.7);
+  assert.equal(
+    view.affinityByObserverRole.find((item) => item.role === 'observer')?.tendencyLabel,
+    '関心が高まりやすい傾向'
+  );
   assert.match(view.disclaimer, /推定/);
 });

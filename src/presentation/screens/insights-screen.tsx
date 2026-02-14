@@ -6,38 +6,23 @@ import { AppScreen } from '@/src/presentation/components/app-screen';
 import { useVoiceAnalysisUiData } from '@/src/presentation/hooks/use-voice-analysis-ui-data';
 import { palette } from '@/src/presentation/theme/palette';
 
+function formatPercent(value: number | null): string {
+  if (value === null) {
+    return '--';
+  }
+
+  return `${Math.round(value * 100)}%`;
+}
+
 export function InsightsScreen() {
   const router = useRouter();
   const { insights } = useVoiceAnalysisUiData();
 
   return (
     <AppScreen scroll contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.liveRow}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveLabel}>Analysis Live</Text>
-        </View>
-
-        <View style={styles.viewerBadge}>
-          <MaterialIcons name="visibility" size={12} color={palette.textSecondary} />
-          <Text style={styles.viewerBadgeText}>{insights.activeViewerCount} 閲覧中</Text>
-        </View>
-      </View>
-
-      <View style={styles.observerSection}>
-        <Text style={styles.observerLabel}>分析閲覧中（Observer）</Text>
-        <View style={styles.avatarStack}>
-          {insights.observerAvatarLabels.slice(0, 4).map((label, index) => (
-            <View key={`${label}-${index}`} style={[styles.avatarBubble, { marginLeft: index === 0 ? 0 : -8 }]}>
-              <Text style={styles.avatarBubbleLabel}>{label}</Text>
-            </View>
-          ))}
-          {insights.observerAvatarLabels.length > 4 ? (
-            <View style={[styles.avatarBubble, styles.avatarCount, { marginLeft: -8 }]}>
-              <Text style={styles.avatarCountLabel}>+{insights.observerAvatarLabels.length - 4}</Text>
-            </View>
-          ) : null}
-        </View>
+      <View style={styles.liveRow}>
+        <View style={styles.liveDot} />
+        <Text style={styles.liveLabel}>Analysis Live</Text>
       </View>
 
       <View style={styles.titleBlock}>
@@ -63,7 +48,10 @@ export function InsightsScreen() {
 
             <View style={styles.affinityBox}>
               <MaterialIcons name="trending-flat" size={16} color={palette.primary} />
-              <Text style={styles.affinityText}>{card.targetObserverName} への {card.affinityEstimate}</Text>
+              <Text style={styles.affinityText}>
+                {card.targetObserverName}（{card.targetObserverRoleLabel}） / 推定スコア{' '}
+                {formatPercent(card.affinityScore)} / 信頼度 {formatPercent(card.affinityConfidence)}
+              </Text>
             </View>
 
             <View style={styles.metricsRow}>
@@ -105,13 +93,8 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 32,
   },
-  header: {
-    marginTop: 4,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   liveRow: {
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -127,59 +110,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: 1.4,
-    fontWeight: '700',
-  },
-  viewerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 99,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  viewerBadgeText: {
-    color: palette.textSecondary,
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  observerSection: {
-    gap: 8,
-  },
-  observerLabel: {
-    color: 'rgba(255, 255, 255, 0.48)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-  avatarStack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarBubble: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: palette.surfaceMuted,
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarBubbleLabel: {
-    color: palette.textPrimary,
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  avatarCount: {
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
-  },
-  avatarCountLabel: {
-    color: palette.textSecondary,
-    fontSize: 10,
     fontWeight: '700',
   },
   titleBlock: {
