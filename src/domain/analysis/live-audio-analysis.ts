@@ -8,6 +8,10 @@ export interface LiveAudioAnalysisRequest {
     vadSpeechRatio?: number;
     normalizationGainDb?: number;
     noiseSuppressionLevel?: number;
+    estimatedSnrDb?: number;
+    speechDominanceScore?: number;
+    bgmRiskScore?: number;
+    noisyEnvironmentLikely?: boolean;
     chunkWindowMs?: number;
     chunkStepMs?: number;
   };
@@ -19,6 +23,9 @@ export interface LiveAudioAnalysisResult {
   paceEstimate: string;
   tendencySummary: string;
   confidence: number;
+  engagementScore?: number;
+  toneScore?: number;
+  paceScore?: number;
   averageMeteringDb?: number;
   silenceRatio?: number;
   transcriptLength?: number;

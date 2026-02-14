@@ -8,6 +8,18 @@ interface LiveAnalyzePayload {
   silenceRatio?: number;
   peakMeteringDb?: number;
   dynamicRangeDb?: number;
+  noiseFloorDb?: number;
+  preprocessing?: {
+    vadSpeechRatio?: number;
+    normalizationGainDb?: number;
+    noiseSuppressionLevel?: number;
+    estimatedSnrDb?: number;
+    speechDominanceScore?: number;
+    bgmRiskScore?: number;
+    noisyEnvironmentLikely?: boolean;
+    chunkWindowMs?: number;
+    chunkStepMs?: number;
+  };
 }
 
 const ENGAGEMENT_EXPRESSIONS = [
@@ -84,14 +96,16 @@ Deno.serve(async (req) => {
 
     const audioBuffer = decodeBase64(body.audioBase64);
 
-    const transcriptEstimate = hfApiKey
+    const transcriptEstimateRaw = hfApiKey
       ? await transcribeAudio({
           apiKey: hfApiKey,
           model: asrModel,
           audioBuffer,
           mimeType: body.audioMimeType,
+          durationMs: body.durationMs,
         })
       : '';
+    const transcriptEstimate = normalizeTranscript(transcriptEstimateRaw);
 
     const sentimentScore = hfApiKey && transcriptEstimate
       ? await estimateSentiment({ apiKey: hfApiKey, model: sentimentModel, text: transcriptEstimate })
@@ -119,6 +133,7 @@ Deno.serve(async (req) => {
     const peakActivity = clamp01((peakMeteringDb + 58) / 34);
     const dynamicActivity = clamp01((dynamicRangeDb - 5) / 20);
     const transcriptActivity = clamp01((charsPerSecond - 0.6) / 3.2);
+    const transcriptQualityScore = resolveTranscriptQualityScore(transcriptEstimate, charsPerSecond);
     const engagementScore = clamp01(
       speechRatio * 0.32 +
         meteringActivity * 0.22 +
@@ -148,7 +163,16 @@ Deno.serve(async (req) => {
     const tendencySummary = silenceLikely
       ? '発話が少なめの区間が続いている傾向'
       : `${labels.engagementEstimate} / ${labels.toneEstimate} / ${labels.paceEstimate}`;
-    const confidence = resolveConfidence(sentimentScore, transcriptEstimate);
+    const confidence = resolveConfidence({
+      sentimentScore,
+      transcript: transcriptEstimate,
+      transcriptQualityScore,
+      silenceLikely,
+      vadSpeechRatio:
+        typeof body.preprocessing?.vadSpeechRatio === 'number'
+          ? clamp01(body.preprocessing.vadSpeechRatio)
+          : null,
+    });
 
     return jsonResponse({
       engagementEstimate: labels.engagementEstimate,
@@ -156,6 +180,9 @@ Deno.serve(async (req) => {
       paceEstimate: labels.paceEstimate,
       tendencySummary,
       confidence,
+      engagementScore,
+      toneScore,
+      paceScore,
       averageMeteringDb,
       silenceRatio,
       transcriptLength: transcriptEstimate.length,
@@ -172,7 +199,12 @@ async function transcribeAudio(input: {
   model: string;
   audioBuffer: Uint8Array;
   mimeType?: string;
+  durationMs?: number;
 }): Promise<string> {
+  if ((input.durationMs ?? 0) < 1200) {
+    return '';
+  }
+
   const response = await fetch(`https://api-inference.huggingface.co/models/${input.model}`, {
     method: 'POST',
     headers: {
@@ -187,12 +219,7 @@ async function transcribeAudio(input: {
   }
 
   const payload = await response.json();
-
-  if (typeof payload?.text === 'string') {
-    return payload.text;
-  }
-
-  return '';
+  return extractTranscript(payload);
 }
 
 async function estimateSentiment(input: {
@@ -290,12 +317,82 @@ function hashSeed(input: string): number {
   return seed;
 }
 
-function resolveConfidence(sentimentScore: number, transcript: string): number {
-  const base = 0.4;
+function resolveConfidence(input: {
+  sentimentScore: number;
+  transcript: string;
+  transcriptQualityScore: number;
+  silenceLikely: boolean;
+  vadSpeechRatio: number | null;
+}): number {
+  const base = input.silenceLikely ? 0.34 : 0.4;
   const sentimentWeight = Math.abs(sentimentScore - 0.5) * 0.4;
-  const transcriptWeight = Math.min(0.2, transcript.length / 200);
+  const transcriptWeight = Math.min(0.2, input.transcript.length / 200);
+  const transcriptQualityWeight = input.transcriptQualityScore * 0.18;
+  const vadWeight = input.vadSpeechRatio === null ? 0 : input.vadSpeechRatio * 0.12;
 
-  return Math.min(0.95, Math.max(0.35, base + sentimentWeight + transcriptWeight));
+  return Math.min(
+    0.95,
+    Math.max(0.3, base + sentimentWeight + transcriptWeight + transcriptQualityWeight + vadWeight)
+  );
+}
+
+function extractTranscript(payload: unknown): string {
+  if (typeof payload === 'string') {
+    return payload;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const objectPayload = payload as Record<string, unknown>;
+    if (typeof objectPayload.text === 'string') {
+      return objectPayload.text;
+    }
+
+    if (typeof objectPayload.generated_text === 'string') {
+      return objectPayload.generated_text;
+    }
+
+    if (Array.isArray(objectPayload.chunks)) {
+      const chunkText = objectPayload.chunks
+        .map((chunk) =>
+          chunk && typeof chunk === 'object' && typeof (chunk as { text?: unknown }).text === 'string'
+            ? ((chunk as { text: string }).text ?? '')
+            : ''
+        )
+        .join(' ')
+        .trim();
+      if (chunkText) {
+        return chunkText;
+      }
+    }
+  }
+
+  if (Array.isArray(payload)) {
+    const firstText = payload.find((item) => typeof item === 'string');
+    if (typeof firstText === 'string') {
+      return firstText;
+    }
+  }
+
+  return '';
+}
+
+function normalizeTranscript(transcript: string): string {
+  return transcript
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}\p{P}\p{Zs}]/gu, '')
+    .trim();
+}
+
+function resolveTranscriptQualityScore(transcript: string, charsPerSecond: number): number {
+  if (!transcript) {
+    return 0;
+  }
+
+  const minLengthScore = Math.min(1, transcript.length / 40);
+  const paceScore = clamp01(1 - Math.abs(charsPerSecond - 2.2) / 3);
+  const punctuationPenalty = /[^\p{L}\p{N}\p{Zs}。、,.!?！？]/gu.test(transcript) ? 0.12 : 0;
+
+  return clamp01(minLengthScore * 0.55 + paceScore * 0.45 - punctuationPenalty);
 }
 
 function decodeBase64(base64: string): Uint8Array {

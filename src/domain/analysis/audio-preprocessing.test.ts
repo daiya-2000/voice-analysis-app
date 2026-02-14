@@ -27,9 +27,27 @@ test('preprocessRecordedVoiceSample keeps remote analysis for speech-like chunks
     silenceRatio: 0.25,
     peakMeteringDb: -12,
     dynamicRangeDb: 16,
+    noiseFloorDb: -46,
   });
 
   assert.equal(result.shouldSkipRemoteAnalysis, false);
   assert.ok(result.vadSpeechRatio > 0.4);
+  assert.equal(result.noisyEnvironmentLikely, false);
 });
 
+test('preprocessRecordedVoiceSample flags noisy karaoke-like chunks', () => {
+  const result = preprocessRecordedVoiceSample({
+    base64Audio: 'AA==',
+    mimeType: 'audio/m4a',
+    durationMs: 8000,
+    averageMeteringDb: -24,
+    silenceRatio: 0.08,
+    peakMeteringDb: -18,
+    dynamicRangeDb: 7,
+    noiseFloorDb: -26,
+  });
+
+  assert.equal(result.noisyEnvironmentLikely, true);
+  assert.ok(result.bgmRiskScore >= 0.62);
+  assert.equal(result.shouldSkipRemoteAnalysis, true);
+});

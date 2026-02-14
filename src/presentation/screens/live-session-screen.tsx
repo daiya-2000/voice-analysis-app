@@ -1,6 +1,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppScreen } from '@/src/presentation/components/app-screen';
 import { PrimaryButton } from '@/src/presentation/components/primary-button';
@@ -62,14 +62,16 @@ export function LiveSessionScreen() {
     sessionCode,
   });
 
-  const handleLeaveSession = async () => {
-    await endSession();
-    router.back();
-  };
-
   const handleFinishSession = async () => {
     await endSession();
-    router.replace('/home');
+    Alert.alert('保存しました', 'セッションを保存しました。', [
+      {
+        text: 'OK',
+        onPress: () => {
+          router.replace('/home');
+        },
+      },
+    ]);
   };
 
   const liveWaveBars = buildLiveWaveBars(currentMeteringDb, isAnalyzingChunk);
@@ -77,14 +79,6 @@ export function LiveSessionScreen() {
   return (
     <AppScreen scroll contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Pressable
-          style={styles.roundIcon}
-          onPress={() => {
-            void handleLeaveSession();
-          }}>
-          <MaterialIcons name="close" size={20} color={palette.textPrimary} />
-        </Pressable>
-
         <View style={styles.headerCenter}>
           <Text style={styles.headerEyebrow}>Live Analysis</Text>
           <View style={styles.headerStatusRow}>
@@ -106,16 +100,20 @@ export function LiveSessionScreen() {
             </Text>
           </View>
         </View>
-
-        <Pressable style={styles.roundIcon}>
-          <MaterialIcons name="more-horiz" size={22} color={palette.textPrimary} />
-        </Pressable>
       </View>
 
       <View style={styles.engagementChip}>
         <MaterialIcons name="auto-awesome" size={16} color={palette.primary} />
         <Text style={styles.engagementText}>{analysisState.engagementEstimate}</Text>
       </View>
+      {analysisState.lowConfidence ? (
+        <Text style={styles.lowConfidenceHint}>信頼度が低いため追加解析中です</Text>
+      ) : null}
+      {analysisState.noisyEnvironmentLikely ? (
+        <Text style={styles.noisyHint}>
+          周囲音が強く推定精度が低下しやすい状態です。端末を会話者に近づけてください。
+        </Text>
+      ) : null}
 
       <Text style={styles.silenceRatioInline}>無音比 {formatPercent(lastChunkDiagnostics.silenceRatio)}</Text>
 
@@ -208,19 +206,7 @@ const styles = StyleSheet.create({
   },
   header: {
     marginTop: 8,
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  roundIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   headerCenter: {
     alignItems: 'center',
@@ -281,6 +267,18 @@ const styles = StyleSheet.create({
   },
   silenceRatioInline: {
     color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: -2,
+  },
+  lowConfidenceHint: {
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: -3,
+  },
+  noisyHint: {
+    color: '#ffd88a',
     fontSize: 11,
     textAlign: 'center',
     marginTop: -2,

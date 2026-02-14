@@ -10,6 +10,7 @@ export interface RecordedVoiceSample {
   silenceRatio?: number;
   peakMeteringDb?: number;
   dynamicRangeDb?: number;
+  noiseFloorDb?: number;
 }
 
 export interface VoiceEnrollmentRequest {

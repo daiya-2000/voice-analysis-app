@@ -113,6 +113,7 @@ export class ExpoVoiceRecorderAdapter implements VoiceRecorderPort {
       silenceRatio,
       peakMeteringDb,
       dynamicRangeDb,
+      noiseFloorDb: this.noiseFloorDb ?? undefined,
     };
   }
 

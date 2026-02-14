@@ -8,6 +8,13 @@ import {
   LIVE_ANALYSIS_WINDOW_MS,
   preprocessRecordedVoiceSample,
 } from '@/src/domain/analysis/audio-preprocessing';
+import { resolveLiveAnalysisLabels } from '@/src/domain/analysis/live-analysis-labels';
+import {
+  isLowConfidence,
+  smoothLiveAnalysisScores,
+  type LiveAnalysisScorePoint,
+} from '@/src/domain/analysis/live-analysis-smoothing';
+import { resolveLiveAudioSignalProfile } from '@/src/domain/analysis/live-audio-signal';
 import {
   getSupabaseCredentialDiagnostics,
   hasSupabaseCredentials,
@@ -31,6 +38,8 @@ interface LiveAnalysisState {
   paceEstimate: string;
   tendencySummary: string;
   confidence: number;
+  lowConfidence: boolean;
+  noisyEnvironmentLikely: boolean;
 }
 
 export interface LiveChunkDiagnostics {
@@ -52,6 +61,20 @@ function isInvalidJwtError(error: unknown): boolean {
   }
 
   return /invalid jwt/i.test(error.message);
+}
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function hashSeed(input: string): number {
+  let seed = 0;
+
+  for (let index = 0; index < input.length; index += 1) {
+    seed = (seed * 31 + input.charCodeAt(index)) >>> 0;
+  }
+
+  return seed;
 }
 
 export function useLiveSessionController(options: UseLiveSessionControllerOptions) {
@@ -81,6 +104,8 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
     paceEstimate: baseView.paceEstimate,
     tendencySummary: '分析中...',
     confidence: 0,
+    lowConfidence: false,
+    noisyEnvironmentLikely: false,
   });
 
   const startedAtRef = useRef<number | null>(null);
@@ -88,6 +113,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
   const isRecordingActiveRef = useRef(false);
   const isMutedRef = useRef(false);
   const isAnalyzingChunkRef = useRef(false);
+  const scoreHistoryRef = useRef<LiveAnalysisScorePoint[]>([]);
 
   const diagnostics = useMemo(() => getSupabaseCredentialDiagnostics(), []);
   const hasSupabase = hasSupabaseCredentials();
@@ -284,6 +310,8 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
           paceEstimate: mutedAnalysis.paceEstimate,
           tendencySummary: mutedAnalysis.tendencySummary,
           confidence: mutedAnalysis.confidence,
+          lowConfidence: false,
+          noisyEnvironmentLikely: false,
         });
         setLastChunkDiagnostics({
           averageMeteringDb: -160,
@@ -318,6 +346,10 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
             vadSpeechRatio: preprocessed.vadSpeechRatio,
             normalizationGainDb: preprocessed.normalizationGainDb,
             noiseSuppressionLevel: preprocessed.noiseSuppressionLevel,
+            estimatedSnrDb: preprocessed.estimatedSnrDb,
+            speechDominanceScore: preprocessed.speechDominanceScore,
+            bgmRiskScore: preprocessed.bgmRiskScore,
+            noisyEnvironmentLikely: preprocessed.noisyEnvironmentLikely,
             chunkWindowMs: LIVE_ANALYSIS_WINDOW_MS,
             chunkStepMs: LIVE_ANALYSIS_STEP_MS,
           },
@@ -345,17 +377,63 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
           return;
         }
 
-        setAnalysisState({
-          engagementEstimate: analysis.engagementEstimate,
-          toneEstimate: analysis.toneEstimate,
-          paceEstimate: analysis.paceEstimate,
-          tendencySummary: analysis.tendencySummary,
+        const averageMeteringDb =
+          typeof analysis.averageMeteringDb === 'number' ? analysis.averageMeteringDb : -60;
+        const silenceRatio = typeof analysis.silenceRatio === 'number' ? analysis.silenceRatio : 1;
+        const peakMeteringDb =
+          typeof analysisRequest.sample.peakMeteringDb === 'number'
+            ? analysisRequest.sample.peakMeteringDb
+            : averageMeteringDb;
+        const dynamicRangeDb =
+          typeof analysisRequest.sample.dynamicRangeDb === 'number'
+            ? analysisRequest.sample.dynamicRangeDb
+            : 0;
+        const transcriptActivity = clamp01(
+          (((analysis.transcriptLength ?? 0) / Math.max(1, analysisRequest.sample.durationMs / 1000)) - 0.6) / 3.2
+        );
+        const seed = hashSeed(`${analysis.analyzedAtIso}:${analysisRequest.sample.durationMs}`);
+        const signalProfile = resolveLiveAudioSignalProfile({
+          averageMeteringDb,
+          silenceRatio,
+          peakMeteringDb,
+          dynamicRangeDb,
+          transcriptActivity,
+          seed,
+        });
+        const scorePoint: LiveAnalysisScorePoint = {
+          engagementScore: analysis.engagementScore ?? signalProfile.engagementScore,
+          toneScore: analysis.toneScore ?? signalProfile.toneScore,
+          paceScore: analysis.paceScore ?? signalProfile.paceScore,
           confidence: analysis.confidence,
+        };
+        const { nextHistory, smoothedPoint } = smoothLiveAnalysisScores(
+          scoreHistoryRef.current,
+          scorePoint
+        );
+        scoreHistoryRef.current = nextHistory;
+        const smoothedLabels = resolveLiveAnalysisLabels({
+          silenceLikely: signalProfile.silenceLikely,
+          engagementScore: smoothedPoint.engagementScore,
+          toneScore: smoothedPoint.toneScore,
+          paceScore: smoothedPoint.paceScore,
+          seed,
+        });
+        const lowConfidence = isLowConfidence(smoothedPoint.confidence);
+
+        setAnalysisState({
+          engagementEstimate: lowConfidence ? '分析中...' : smoothedLabels.engagementEstimate,
+          toneEstimate: lowConfidence ? '推定が不確かです' : smoothedLabels.toneEstimate,
+          paceEstimate: lowConfidence ? '推定が不確かです' : smoothedLabels.paceEstimate,
+          tendencySummary: lowConfidence
+            ? '信頼度が低いため追加解析中'
+            : analysis.tendencySummary,
+          confidence: smoothedPoint.confidence,
+          lowConfidence,
+          noisyEnvironmentLikely: preprocessed.noisyEnvironmentLikely,
         });
         setLastChunkDiagnostics({
-          averageMeteringDb:
-            typeof analysis.averageMeteringDb === 'number' ? analysis.averageMeteringDb : null,
-          silenceRatio: typeof analysis.silenceRatio === 'number' ? analysis.silenceRatio : null,
+          averageMeteringDb,
+          silenceRatio,
           transcriptLength:
             typeof analysis.transcriptLength === 'number' ? analysis.transcriptLength : null,
           analyzedAtIso: analysis.analyzedAtIso,
@@ -454,6 +532,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
   }, [setRecordingMutedUseCase]);
 
   const endSession = useCallback(async () => {
+    scoreHistoryRef.current = [];
     await stopRecordingSafely();
   }, [stopRecordingSafely]);
 

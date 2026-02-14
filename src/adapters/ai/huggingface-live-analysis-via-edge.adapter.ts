@@ -15,6 +15,9 @@ interface LiveAnalyzeFunctionResponse {
   paceEstimate?: string;
   tendencySummary?: string;
   confidence?: number;
+  engagementScore?: number;
+  toneScore?: number;
+  paceScore?: number;
   averageMeteringDb?: number;
   silenceRatio?: number;
   transcriptLength?: number;
@@ -54,6 +57,7 @@ export class HuggingFaceLiveAnalysisViaEdgeAdapter implements LiveAudioAnalysisP
         silenceRatio: request.sample.silenceRatio,
         peakMeteringDb: request.sample.peakMeteringDb,
         dynamicRangeDb: request.sample.dynamicRangeDb,
+        noiseFloorDb: request.sample.noiseFloorDb,
         preprocessing: request.preprocessing,
       },
     });
@@ -79,6 +83,9 @@ export class HuggingFaceLiveAnalysisViaEdgeAdapter implements LiveAudioAnalysisP
       paceEstimate: data?.paceEstimate ?? '安定した会話ペース傾向',
       tendencySummary: data?.tendencySummary ?? '会話傾向を推定しました',
       confidence: data?.confidence ?? 0.5,
+      engagementScore: data?.engagementScore,
+      toneScore: data?.toneScore,
+      paceScore: data?.paceScore,
       averageMeteringDb: data?.averageMeteringDb ?? request.sample.averageMeteringDb,
       silenceRatio: data?.silenceRatio ?? request.sample.silenceRatio,
       transcriptLength: data?.transcriptLength,
