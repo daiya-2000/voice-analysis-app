@@ -4,6 +4,13 @@ export interface LiveAudioAnalysisRequest {
   sessionCode?: string;
   observerId?: string;
   sample: RecordedVoiceSample;
+  preprocessing?: {
+    vadSpeechRatio?: number;
+    normalizationGainDb?: number;
+    noiseSuppressionLevel?: number;
+    chunkWindowMs?: number;
+    chunkStepMs?: number;
+  };
 }
 
 export interface LiveAudioAnalysisResult {

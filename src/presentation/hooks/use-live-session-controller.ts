@@ -4,6 +4,11 @@ import { HuggingFaceLiveAnalysisViaEdgeAdapter } from '@/src/adapters/ai/hugging
 import { MockLiveAudioAnalysisAdapter } from '@/src/adapters/ai/mock-live-audio-analysis.adapter';
 import { ExpoVoiceRecorderAdapter } from '@/src/adapters/audio/expo-voice-recorder.adapter';
 import {
+  LIVE_ANALYSIS_STEP_MS,
+  LIVE_ANALYSIS_WINDOW_MS,
+  preprocessRecordedVoiceSample,
+} from '@/src/domain/analysis/audio-preprocessing';
+import {
   getSupabaseCredentialDiagnostics,
   hasSupabaseCredentials,
 } from '@/src/adapters/supabase/client';
@@ -14,7 +19,6 @@ import { SetRecordingMutedUseCase } from '@/src/application/usecases/set-recordi
 import { StartVoiceRecordingUseCase } from '@/src/application/usecases/start-voice-recording.usecase';
 import { StopVoiceRecordingUseCase } from '@/src/application/usecases/stop-voice-recording.usecase';
 
-const LIVE_ANALYSIS_CHUNK_MS = 20 * 1000;
 const useMockBackend = process.env.EXPO_PUBLIC_USE_MOCK_BACKEND === '1';
 
 export type LiveRecordingStatus = 'starting' | 'recording' | 'muted' | 'error' | 'stopped';
@@ -61,7 +65,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
   const [analyzedChunkCount, setAnalyzedChunkCount] = useState(0);
   const [isAnalyzingChunk, setIsAnalyzingChunk] = useState(false);
   const [secondsUntilNextAnalysis, setSecondsUntilNextAnalysis] = useState<number | null>(
-    Math.ceil(LIVE_ANALYSIS_CHUNK_MS / 1000)
+    Math.ceil(LIVE_ANALYSIS_STEP_MS / 1000)
   );
   const [currentMeteringDb, setCurrentMeteringDb] = useState<number | null>(null);
   const [lastChunkDiagnostics, setLastChunkDiagnostics] = useState<LiveChunkDiagnostics>({
@@ -120,7 +124,6 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
   );
 
   const getLiveSessionRuntimeViewUseCase = useMemo(() => new GetLiveSessionRuntimeViewUseCase(), []);
-
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
@@ -175,7 +178,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
         const now = Date.now();
         startedAtRef.current = now;
         chunkWindowStartedAtRef.current = now;
-        setSecondsUntilNextAnalysis(Math.ceil(LIVE_ANALYSIS_CHUNK_MS / 1000));
+        setSecondsUntilNextAnalysis(Math.ceil(LIVE_ANALYSIS_STEP_MS / 1000));
         setStatus('recording');
       } catch (error) {
         if (!isMounted) {
@@ -219,7 +222,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
       }
 
       const elapsedChunkMs = Date.now() - chunkWindowStartedAtRef.current;
-      const remainingMs = Math.max(0, LIVE_ANALYSIS_CHUNK_MS - elapsedChunkMs);
+      const remainingMs = Math.max(0, LIVE_ANALYSIS_STEP_MS - elapsedChunkMs);
       setSecondsUntilNextAnalysis(Math.ceil(remainingMs / 1000));
     }, 1000);
 
@@ -259,11 +262,15 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
           sample: {
             base64Audio: 'AA==',
             mimeType: 'audio/m4a',
-            durationMs: LIVE_ANALYSIS_CHUNK_MS,
+            durationMs: LIVE_ANALYSIS_STEP_MS,
             averageMeteringDb: -160,
             silenceRatio: 1,
             peakMeteringDb: -120,
             dynamicRangeDb: 0,
+          },
+          preprocessing: {
+            chunkWindowMs: LIVE_ANALYSIS_WINDOW_MS,
+            chunkStepMs: LIVE_ANALYSIS_STEP_MS,
           },
         });
 
@@ -303,18 +310,26 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
         setErrorMessage(`Supabase環境変数が未設定です: ${diagnostics.missingKeys.join(', ')}`);
       } else {
         let analysis: Awaited<ReturnType<typeof analyzeWithMockUseCase.execute>>;
+        const preprocessed = preprocessRecordedVoiceSample(sample);
+        const analysisRequest = {
+          sessionCode,
+          sample: preprocessed.sample,
+          preprocessing: {
+            vadSpeechRatio: preprocessed.vadSpeechRatio,
+            normalizationGainDb: preprocessed.normalizationGainDb,
+            noiseSuppressionLevel: preprocessed.noiseSuppressionLevel,
+            chunkWindowMs: LIVE_ANALYSIS_WINDOW_MS,
+            chunkStepMs: LIVE_ANALYSIS_STEP_MS,
+          },
+        };
 
-        if (backendMode === 'mock') {
-          analysis = await analyzeWithMockUseCase.execute({
-            sessionCode,
-            sample,
-          });
+        if (preprocessed.shouldSkipRemoteAnalysis) {
+          analysis = await analyzeWithMockUseCase.execute(analysisRequest);
+        } else if (backendMode === 'mock') {
+          analysis = await analyzeWithMockUseCase.execute(analysisRequest);
         } else {
           try {
-            analysis = await analyzeWithSupabaseUseCase.execute({
-              sessionCode,
-              sample,
-            });
+            analysis = await analyzeWithSupabaseUseCase.execute(analysisRequest);
             setIsJwtFallbackActive(false);
           } catch (analysisError) {
             if (!isInvalidJwtError(analysisError)) {
@@ -322,10 +337,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
             }
 
             setIsJwtFallbackActive(true);
-            analysis = await analyzeWithMockUseCase.execute({
-              sessionCode,
-              sample,
-            });
+            analysis = await analyzeWithMockUseCase.execute(analysisRequest);
           }
         }
 
@@ -388,7 +400,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
         if (lastErrorMessage && !shouldRestartRecording) {
           setErrorMessage(lastErrorMessage);
         }
-        setSecondsUntilNextAnalysis(isMutedRef.current ? null : Math.ceil(LIVE_ANALYSIS_CHUNK_MS / 1000));
+        setSecondsUntilNextAnalysis(isMutedRef.current ? null : Math.ceil(LIVE_ANALYSIS_STEP_MS / 1000));
       }
 
       setCurrentMeteringDb(recorderAdapter.getCurrentMeteringDb());
@@ -410,7 +422,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
   useEffect(() => {
     const timer = setInterval(() => {
       void analyzeLatestChunk();
-    }, LIVE_ANALYSIS_CHUNK_MS);
+    }, LIVE_ANALYSIS_STEP_MS);
 
     return () => {
       clearInterval(timer);
@@ -428,7 +440,7 @@ export function useLiveSessionController(options: UseLiveSessionControllerOption
       await setRecordingMutedUseCase.execute(nextMuted);
       setIsMuted(nextMuted);
       setStatus(nextMuted ? 'muted' : 'recording');
-      setSecondsUntilNextAnalysis(nextMuted ? null : Math.ceil(LIVE_ANALYSIS_CHUNK_MS / 1000));
+      setSecondsUntilNextAnalysis(nextMuted ? null : Math.ceil(LIVE_ANALYSIS_STEP_MS / 1000));
 
       if (!nextMuted) {
         chunkWindowStartedAtRef.current = Date.now();

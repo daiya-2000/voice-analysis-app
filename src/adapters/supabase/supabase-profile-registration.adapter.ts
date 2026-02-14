@@ -3,6 +3,7 @@ import type {
   ObserverProfileRegistrationResult,
   ProfileRegistrationPort,
 } from '@/src/application/ports/profile-registration.port';
+import { toObserverProfileRegistrationErrorMessage } from '@/src/application/policies/profile-registration-error-policy';
 import { getSupabaseClient } from '@/src/adapters/supabase/client';
 
 export class SupabaseProfileRegistrationAdapter implements ProfileRegistrationPort {
@@ -45,7 +46,7 @@ export class SupabaseProfileRegistrationAdapter implements ProfileRegistrationPo
       .single();
 
     if (error) {
-      throw new Error(`Failed to register observer profile: ${error.message}`);
+      throw new Error(toObserverProfileRegistrationErrorMessage(error));
     }
 
     return {

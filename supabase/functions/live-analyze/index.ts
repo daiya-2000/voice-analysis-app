@@ -66,6 +66,11 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authContext = await verifyRequestAuth(req);
+    if (!authContext.ok) {
+      return jsonResponse({ error: authContext.error }, 401);
+    }
+
     const body = (await req.json()) as LiveAnalyzePayload;
 
     if (!body.audioBase64) {
@@ -312,4 +317,42 @@ function jsonResponse(data: unknown, status = 200): Response {
       'Content-Type': 'application/json',
     },
   });
+}
+
+async function verifyRequestAuth(
+  req: Request
+): Promise<{ ok: true; userId: string } | { ok: false; error: string }> {
+  const authHeader = req.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return { ok: false, error: 'Missing Bearer token.' };
+  }
+
+  const token = authHeader.slice(7);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const apikey = anonKey ?? serviceRoleKey;
+
+  if (!supabaseUrl || !apikey) {
+    return { ok: false, error: 'Auth verification is not configured on Edge environment.' };
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method: 'GET',
+    headers: {
+      apikey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    return { ok: false, error: 'Invalid or expired JWT.' };
+  }
+
+  const payload = (await response.json()) as { id?: string };
+  if (!payload?.id) {
+    return { ok: false, error: 'Authenticated user payload is missing id.' };
+  }
+
+  return { ok: true, userId: payload.id };
 }

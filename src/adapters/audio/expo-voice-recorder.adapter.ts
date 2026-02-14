@@ -15,6 +15,14 @@ const METERING_POLL_MS = 250;
 const SILENCE_THRESHOLD_DB = -45;
 const RELATIVE_SILENCE_GAP_DB = 18;
 const AVERAGE_SILENCE_GAP_DB = 8;
+const NOISE_FLOOR_SILENCE_GAP_DB = 9;
+const NOISE_FLOOR_RISE_ALPHA = 0.015;
+const NOISE_FLOOR_FALL_ALPHA = 0.22;
+const INPUT_LEVEL_GATE_GAP_DB = 7;
+const INPUT_LEVEL_GAIN = 2.4;
+const INPUT_LEVEL_BASE_DB = -42;
+const INPUT_LEVEL_MIN_DB = -60;
+const INPUT_LEVEL_MAX_DB = -8;
 
 export class ExpoVoiceRecorderAdapter implements VoiceRecorderPort {
   private recorder: AudioRecorder | null = null;
@@ -31,6 +39,7 @@ export class ExpoVoiceRecorderAdapter implements VoiceRecorderPort {
   private meteringSum = 0;
   private meteringCount = 0;
   private silenceCount = 0;
+  private noiseFloorDb: number | null = null;
 
   async startRecording(): Promise<void> {
     const permission = await requestRecordingPermissionsAsync();
@@ -151,15 +160,19 @@ export class ExpoVoiceRecorderAdapter implements VoiceRecorderPort {
         return;
       }
 
-      this.latestMeteringDb = status.metering;
+      this.updateNoiseFloor(status.metering);
+      this.latestMeteringDb = this.toInputLevelMeteringDb(status.metering);
       this.peakMeteringDb = Math.max(this.peakMeteringDb, status.metering);
       this.minMeteringDb = Math.min(this.minMeteringDb, status.metering);
       this.meteringSum += status.metering;
       this.meteringCount += 1;
       const runningAverageDb = this.meteringSum / this.meteringCount;
+      const adaptiveNoiseThreshold =
+        this.noiseFloorDb === null ? -160 : this.noiseFloorDb + NOISE_FLOOR_SILENCE_GAP_DB;
 
       const dynamicThreshold = Math.max(
         SILENCE_THRESHOLD_DB,
+        adaptiveNoiseThreshold,
         this.peakMeteringDb - RELATIVE_SILENCE_GAP_DB,
         runningAverageDb - AVERAGE_SILENCE_GAP_DB
       );
@@ -186,5 +199,31 @@ export class ExpoVoiceRecorderAdapter implements VoiceRecorderPort {
     this.meteringSum = 0;
     this.meteringCount = 0;
     this.silenceCount = 0;
+    this.noiseFloorDb = null;
+  }
+
+  private updateNoiseFloor(meteringDb: number): void {
+    if (this.noiseFloorDb === null) {
+      this.noiseFloorDb = meteringDb;
+      return;
+    }
+
+    const alpha = meteringDb > this.noiseFloorDb ? NOISE_FLOOR_RISE_ALPHA : NOISE_FLOOR_FALL_ALPHA;
+    this.noiseFloorDb = this.noiseFloorDb + (meteringDb - this.noiseFloorDb) * alpha;
+  }
+
+  private toInputLevelMeteringDb(rawMeteringDb: number): number {
+    if (this.noiseFloorDb === null) {
+      return rawMeteringDb;
+    }
+
+    const gateThreshold = this.noiseFloorDb + INPUT_LEVEL_GATE_GAP_DB;
+
+    if (rawMeteringDb <= gateThreshold) {
+      return -160;
+    }
+
+    const boosted = INPUT_LEVEL_BASE_DB + (rawMeteringDb - gateThreshold) * INPUT_LEVEL_GAIN;
+    return Math.max(INPUT_LEVEL_MIN_DB, Math.min(INPUT_LEVEL_MAX_DB, boosted));
   }
 }

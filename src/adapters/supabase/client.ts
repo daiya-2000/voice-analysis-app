@@ -141,3 +141,32 @@ export async function getSupabaseAccessToken(): Promise<string> {
 
   return accessToken;
 }
+
+export async function renewSupabaseAuthSession(): Promise<void> {
+  const supabase = getSupabaseClient();
+
+  const { error: signOutError } = await supabase.auth.signOut();
+  if (signOutError) {
+    // 既存セッションが無い場合などは継続
+  }
+
+  const { data: signInData, error: signInError } = await supabase.auth.signInAnonymously();
+  if (signInError) {
+    throw new Error(
+      `Failed to renew Supabase anonymous session: ${signInError.message}. Enable anonymous sign-ins in Supabase Auth settings.`
+    );
+  }
+
+  if (!signInData.session?.access_token || !signInData.session.refresh_token) {
+    throw new Error('Supabase anonymous session is missing tokens during renewal.');
+  }
+
+  const { error: setSessionError } = await supabase.auth.setSession({
+    access_token: signInData.session.access_token,
+    refresh_token: signInData.session.refresh_token,
+  });
+
+  if (setSessionError) {
+    throw new Error(`Failed to set renewed Supabase auth session: ${setSessionError.message}`);
+  }
+}

@@ -30,48 +30,12 @@ function buildLiveWaveBars(currentMeteringDb: number | null, isAnalyzingChunk: b
   });
 }
 
-function formatDbValue(value: number | null): string {
-  if (value === null) {
-    return '取得中';
-  }
-
-  return `${value.toFixed(1)} dB`;
-}
-
-function formatInputLevel(value: number | null, isMuted = false): string {
-  if (isMuted) {
-    return '0%';
-  }
-
-  if (value === null) {
-    return '取得中';
-  }
-
-  const normalized = Math.min(1, Math.max(0, (value + 60) / 60));
-  return `${Math.round(normalized * 100)}%`;
-}
-
 function formatPercent(value: number | null): string {
   if (value === null) {
     return '--';
   }
 
   return `${Math.round(value * 100)}%`;
-}
-
-function formatLastAnalyzedLabel(analyzedAtIso: string | null): string {
-  if (!analyzedAtIso) {
-    return '未解析';
-  }
-
-  const analyzedDate = new Date(analyzedAtIso);
-  const timeLabel = analyzedDate.toLocaleTimeString('ja-JP', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-
-  return `${timeLabel}`;
 }
 
 export function LiveSessionScreen() {
@@ -91,7 +55,6 @@ export function LiveSessionScreen() {
     isMuted,
     lastChunkDiagnostics,
     runtimeView,
-    secondsUntilNextAnalysis,
     status,
     toggleMute,
   } = useLiveSessionController({
@@ -110,14 +73,6 @@ export function LiveSessionScreen() {
   };
 
   const liveWaveBars = buildLiveWaveBars(currentMeteringDb, isAnalyzingChunk);
-
-  const nextAnalysisLabel = isMuted
-    ? 'ミュート中'
-    : isAnalyzingChunk
-      ? '解析中...'
-      : secondsUntilNextAnalysis === null
-        ? '--'
-        : `${secondsUntilNextAnalysis}秒`;
 
   return (
     <AppScreen scroll contentContainerStyle={styles.container}>
@@ -162,24 +117,7 @@ export function LiveSessionScreen() {
         <Text style={styles.engagementText}>{analysisState.engagementEstimate}</Text>
       </View>
 
-      <Text style={styles.tendencySummary}>
-        {analysisState.tendencySummary}
-        {analyzedChunkCount > 0 ? ` (confidence ${analysisState.confidence.toFixed(2)})` : ''}
-      </Text>
-
-      <View style={styles.telemetryChipRow}>
-        <View style={styles.telemetryChip}>
-          <MaterialIcons name="graphic-eq" size={14} color={palette.primary} />
-          <Text style={styles.telemetryChipLabel}>
-            入力レベル {formatInputLevel(currentMeteringDb, isMuted)}
-          </Text>
-        </View>
-
-        <View style={styles.telemetryChip}>
-          <MaterialIcons name="schedule" size={14} color={palette.primary} />
-          <Text style={styles.telemetryChipLabel}>次回解析 {nextAnalysisLabel}</Text>
-        </View>
-      </View>
+      <Text style={styles.silenceRatioInline}>無音比 {formatPercent(lastChunkDiagnostics.silenceRatio)}</Text>
 
       <View style={styles.liveWaveArea}>
         <WaveBars heights={liveWaveBars} activeFrom={2} barWidth={6} />
@@ -219,36 +157,12 @@ export function LiveSessionScreen() {
         />
       </View>
 
-      <View style={styles.diagnosticsCard}>
-        <Text style={styles.diagnosticsTitle}>直近チャンク診断</Text>
-        <View style={styles.diagnosticsRow}>
-          <Text style={styles.diagnosticsLabel}>解析時刻</Text>
-          <Text style={styles.diagnosticsValue}>
-            {formatLastAnalyzedLabel(lastChunkDiagnostics.analyzedAtIso)}
-          </Text>
-        </View>
-        <View style={styles.diagnosticsRow}>
-          <Text style={styles.diagnosticsLabel}>無音比</Text>
-          <Text style={styles.diagnosticsValue}>{formatPercent(lastChunkDiagnostics.silenceRatio)}</Text>
-        </View>
-        <View style={styles.diagnosticsRow}>
-          <Text style={styles.diagnosticsLabel}>平均入力</Text>
-          <Text style={styles.diagnosticsValue}>
-            {lastChunkDiagnostics.averageMeteringDb === null
-              ? '--'
-              : `${formatInputLevel(lastChunkDiagnostics.averageMeteringDb)} (${formatDbValue(
-                  lastChunkDiagnostics.averageMeteringDb
-                )})`}
-          </Text>
-        </View>
-      </View>
-
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
       <Text style={styles.backendHint}>
         {analysisMode === 'supabase'
           ? `Supabaseライブ解析: ${analyzedChunkCount}回`
           : analysisMode === 'mock_fallback'
-            ? `JWT未認証のためモック解析に切替中 (${analyzedChunkCount}回)`
+            ? `認証ゲート再試行中のため一時フォールバック解析を表示中 (${analyzedChunkCount}回)`
             : `モック解析で表示を更新中 (${analyzedChunkCount}回)`}
       </Text>
       <Text style={styles.speakerScopeHint}>
@@ -365,28 +279,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 2,
   },
-  telemetryChipRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 2,
-  },
-  telemetryChip: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(43, 238, 108, 0.16)',
-    backgroundColor: 'rgba(43, 238, 108, 0.08)',
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  telemetryChipLabel: {
-    color: palette.primary,
+  silenceRatioInline: {
+    color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 11,
-    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: -2,
   },
   liveWaveArea: {
     marginTop: 14,
@@ -471,34 +368,6 @@ const styles = StyleSheet.create({
   },
   actionLabelPrimary: {
     color: palette.primary,
-  },
-  diagnosticsCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    padding: 12,
-    gap: 6,
-  },
-  diagnosticsTitle: {
-    color: palette.textPrimary,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  diagnosticsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  diagnosticsLabel: {
-    color: 'rgba(255, 255, 255, 0.58)',
-    fontSize: 11,
-  },
-  diagnosticsValue: {
-    color: palette.textPrimary,
-    fontSize: 11,
-    fontWeight: '600',
   },
   errorText: {
     color: '#ff9b9b',

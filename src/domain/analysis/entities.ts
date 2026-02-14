@@ -1,4 +1,4 @@
-export type ObserverRole = 'host' | 'observer';
+export type ObserverRole = 'host' | 'observer' | 'guest';
 export type SpeakerActivity = 'speaking' | 'silent';
 
 export interface Observer {
@@ -17,6 +17,8 @@ export interface DetectedSpeakerInsight {
   estimatedEmotionTendency: string;
   estimatedResponseTendency: string;
   estimatedAffinityTendency: string;
+  estimatedAffinityScore: number;
+  estimatedAffinityConfidence: number;
   targetObserverId?: string;
 }
 
